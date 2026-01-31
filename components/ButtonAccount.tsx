@@ -1,148 +1,78 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState } from "react";
-import { Popover, Transition } from "@headlessui/react";
-import { useSession, signOut } from "next-auth/react";
-import apiClient from "@/libs/api";
+import { createClient } from "@/utils/supabase/client";
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 
-// A button to show user some account actions
-//  1. Billing: open a Stripe Customer Portal to manage their billing (cancel subscription, update payment method, etc.).
-//     You have to manually activate the Customer Portal in your Stripe Dashboard (https://dashboard.stripe.com/test/settings/billing/portal)
-//     This is only available if the customer has a customerId (they made a purchase previously)
-//  2. Logout: sign out and go back to homepage
-// See more at https://shipfa.st/docs/components/buttonAccount
-const ButtonAccount = () => {
-  const { data: session, status } = useSession();
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+export default function ButtonAccount() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClient();
 
-  const handleSignOut = () => {
-    signOut({ callbackUrl: "/" });
-  };
-  const handleBilling = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      setLoading(false);
+    };
 
-    try {
-      const { url }: { url: string } = await apiClient.post(
-        "/stripe/create-portal",
-        {
-          returnUrl: window.location.href,
-        }
-      );
+    getUser();
 
-      window.location.href = url;
-    } catch (e) {
-      console.error(e);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogin = async () => {
+    // For simplicity, we'll use Google OAuth or Email Magic Link
+    // You can customize this to open a modal with Email/Password if configured in Supabase
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      toast.error(error.message);
     }
-
-    setIsLoading(false);
   };
 
-  // Don't show anything if not authenticated (we don't have any info about the user)
-  if (status === "unauthenticated") return null;
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast.success("Signed out successfully");
+    setUser(null);
+  };
+
+  if (loading) {
+    return <button className="btn btn-ghost">Loading...</button>;
+  }
+
+  if (user) {
+    return (
+      <div className="dropdown dropdown-end">
+        <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
+          <div className="w-10 rounded-full">
+            <img src={user.user_metadata?.avatar_url || "https://ui-avatars.com/api/?name=" + (user.email || "User")} alt="Profile" />
+          </div>
+        </label>
+        <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+          <li className="menu-title text-base-content/70">
+            <span>{user.email}</span>
+          </li>
+          <li><button onClick={handleSignOut}>Logout</button></li>
+        </ul>
+      </div>
+    );
+  }
 
   return (
-    <Popover className="relative z-10">
-      {({ open }) => (
-        <>
-          <Popover.Button className="btn">
-            {session?.user?.image ? (
-              <img
-                src={session?.user?.image}
-                alt={session?.user?.name || "Account"}
-                className="w-6 h-6 rounded-full shrink-0"
-                referrerPolicy="no-referrer"
-                width={24}
-                height={24}
-              />
-            ) : (
-              <span className="w-6 h-6 bg-base-300 flex justify-center items-center rounded-full shrink-0">
-                {session?.user?.name?.charAt(0) ||
-                  session?.user?.email?.charAt(0)}
-              </span>
-            )}
-
-            {session?.user?.name || "Account"}
-
-            {isLoading ? (
-              <span className="loading loading-spinner loading-xs"></span>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className={`w-5 h-5 duration-200 opacity-50 ${
-                  open ? "transform rotate-180 " : ""
-                }`}
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            )}
-          </Popover.Button>
-          <Transition
-            enter="transition duration-100 ease-out"
-            enterFrom="transform scale-95 opacity-0"
-            enterTo="transform scale-100 opacity-100"
-            leave="transition duration-75 ease-out"
-            leaveFrom="transform scale-100 opacity-100"
-            leaveTo="transform scale-95 opacity-0"
-          >
-            <Popover.Panel className="absolute left-0 z-10 mt-3 w-screen max-w-[16rem] transform">
-              <div className="overflow-hidden rounded-xl shadow-xl ring-1 ring-base-content ring-opacity-5 bg-base-100 p-1">
-                <div className="space-y-0.5 text-sm">
-                  <button
-                    className="flex items-center gap-2 hover:bg-base-300 duration-200 py-1.5 px-4 w-full rounded-lg font-medium"
-                    onClick={handleBilling}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      className="w-5 h-5"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M2.5 4A1.5 1.5 0 001 5.5V6h18v-.5A1.5 1.5 0 0017.5 4h-15zM19 8.5H1v6A1.5 1.5 0 002.5 16h15a1.5 1.5 0 001.5-1.5v-6zM3 13.25a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zm4.75-.75a.75.75 0 000 1.5h3.5a.75.75 0 000-1.5h-3.5z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Billing
-                  </button>
-                  <button
-                    className="flex items-center gap-2 hover:bg-error/20 hover:text-error duration-200 py-1.5 px-4 w-full rounded-lg font-medium"
-                    onClick={handleSignOut}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      className="w-5 h-5"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z"
-                        clipRule="evenodd"
-                      />
-                      <path
-                        fillRule="evenodd"
-                        d="M6 10a.75.75 0 01.75-.75h9.546l-1.048-.943a.75.75 0 111.004-1.114l2.5 2.25a.75.75 0 010 1.114l-2.5 2.25a.75.75 0 11-1.004-1.114l1.048-.943H6.75A.75.75 0 016 10z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Logout
-                  </button>
-                </div>
-              </div>
-            </Popover.Panel>
-          </Transition>
-        </>
-      )}
-    </Popover>
+    <button className="btn btn-primary" onClick={handleLogin}>
+      Log In
+    </button>
   );
-};
-
-export default ButtonAccount;
+}
